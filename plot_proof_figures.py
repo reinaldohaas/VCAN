@@ -65,55 +65,88 @@ def calculate_theta_e(t_k, rh_pct, p_hpa):
 
 def plot_pacific_pre_andes_vpi(ds_pl):
     """
-    Figura 1 de Prova: Anomalia de VPI a Oeste dos Andes no Pacífico (19/12/1995 00Z).
-    Mostra a anomalia ciclônica de VPI em 850 hPa e a anomalia de VPI em 400 hPa.
+    Figura 1 de Prova: Corte Vertical de VPI e Isentrópicas a Oeste dos Andes no Pacífico
+    (18/12/1995 18Z ou 19/12/1995 00Z), exatamente correspondente ao Corte A da Tese (Figura 4-12).
+    Mostra a anomalia ciclônica de VPI na superfície (abaixo de 850 hPa) represada a oeste dos Andes
+    e a intrusão de VPI em altos níveis (400-200 hPa) defasada em lambda/4.
     """
-    date = '1995-12-19T00:00'
-    q_uvp, _ = calculate_ertel_vpi(ds_pl, date)
+    date = '1995-12-18T18:00'
+    lat_slice = -35.0
     
-    levels_list = list(ds_pl.level.values)
-    k400 = levels_list.index(400)
-    k850 = levels_list.index(850)
+    q_uvp, theta = calculate_ertel_vpi(ds_pl, date)
     
     lats = ds_pl.latitude.values
     lons = ds_pl.longitude.values
-    lon2d, lat2d = np.meshgrid(lons, lats)
+    levels = ds_pl.level.values # hPa
     
-    z400 = ds_pl['z'].sel(time=date, level=400).values / 9.80665
+    lat_idx = np.argmin(np.abs(lats - lat_slice))
+    q_cross = q_uvp[:, lat_idx, :].copy()
+    theta_cross = theta[:, lat_idx, :].copy()
+    u_cross = ds_pl['u'].sel(time=date, latitude=lat_slice, method='nearest').values
     
-    fig = plt.figure(figsize=(10, 8))
-    ax = plt.axes(projection=ccrs.PlateCarree())
-    ax.add_feature(cfeature.COASTLINE, linewidth=1.0)
-    ax.add_feature(cfeature.BORDERS, linestyle=':', linewidth=0.6)
+    # Carrega relevo
+    try:
+        ds_orog = xr.open_dataset('era5_surface_orography.nc')
+        orog_data = ds_orog['sp'].sel(latitude=lat_slice, method='nearest')
+        if 'valid_time' in orog_data.dims and len(orog_data.dims) > 1:
+            orog_data = orog_data.isel(valid_time=0)
+        sp_hpa = (orog_data / 100.0).values
+        if len(sp_hpa) != len(lons):
+            sp_hpa = np.interp(lons, ds_orog.longitude.values, sp_hpa)
+    except Exception:
+        sp_hpa = np.full_like(lons, 1013.25)
+        
+    # Mascara atmosfera subterrânea (p > sp)
+    for k, p_val in enumerate(levels):
+        q_cross[k, p_val > sp_hpa] = np.nan
+        theta_cross[k, p_val > sp_hpa] = np.nan
+
+    fig, ax = plt.subplots(figsize=(11, 6.5))
+    lon2d, lev2d = np.meshgrid(lons, levels)
     
-    # VPI em 850 hPa: valores ciclônicos (> 0.5 UVP)
-    q850 = q_uvp[k850]
-    c1 = ax.contourf(lon2d, lat2d, q850, levels=np.linspace(0.5, 3.0, 11), cmap='YlOrRd',
-                     transform=ccrs.PlateCarree(), extend='both', alpha=0.8)
-    plt.colorbar(c1, ax=ax, orientation='horizontal', pad=0.06, label=r'VPI Ciclônica em 850 hPa (UVP)')
+    # Sombreado colorido da VPI de Ertel (UVP)
+    cf = ax.contourf(lon2d, lev2d, q_cross, levels=np.linspace(0.0, 3.5, 15),
+                     cmap='Spectral_r', extend='both')
+    cbar = plt.colorbar(cf, ax=ax, orientation='horizontal', pad=0.1, aspect=35)
+    cbar.set_label(r'Vorticidade Potencial Isentrópica - VPI Ciclônica (UVP)', fontsize=10, fontweight='bold')
     
-    # Geopotencial em 400 hPa em linhas azuis
-    cz = ax.contour(lon2d, lat2d, z400, levels=np.arange(6800, 7500, 60), colors='blue', linewidths=1.5,
-                    transform=ccrs.PlateCarree())
-    ax.clabel(cz, inline=True, fontsize=8, fmt='%d m')
+    # Contorno da tropopausa dinâmica em altos níveis (1.5 UVP)
+    c_tropo = ax.contour(lon2d, lev2d, q_cross, levels=[1.5], colors='red', linewidths=2.0)
+    ax.clabel(c_tropo, inline=True, fontsize=8, fmt='Tropopausa (1.5 UVP)')
     
-    # Anomalia de VPI em 400 hPa (contornos pretos tracejados indicando ar estratosférico >= 1.5 UVP)
-    q400 = q_uvp[k400]
-    c400 = ax.contour(lon2d, lat2d, q400, levels=[1.2, 1.5, 2.0, 2.5], colors='black', linewidths=1.8, linestyles='--',
-                      transform=ccrs.PlateCarree())
-    ax.clabel(c400, inline=True, fontsize=8, fmt='400hPa: %.1f')
+    # Isentrópicas (theta) como linhas pretas contínuas
+    ct = ax.contour(lon2d, lev2d, theta_cross, levels=np.arange(275, 385, 5), colors='black', linewidths=0.9)
+    ax.clabel(ct, inline=True, fontsize=8, fmt='%d K')
     
-    # Eixo da Cordilheira dos Andes
-    ax.plot([-70, -70], [-55, -15], color='saddlebrown', linewidth=3.5, label='Cordilheira dos Andes', transform=ccrs.PlateCarree())
+    # Perfil da Cordilheira dos Andes em marrom
+    ax.fill_between(lons, sp_hpa, 1050, color='saddlebrown', alpha=0.95, zorder=5, label='Cordilheira dos Andes')
+    ax.plot(lons, sp_hpa, color='black', linewidth=1.5, zorder=6)
     
-    ax.set_extent([-100, -55, -55, -20], crs=ccrs.PlateCarree())
-    plt.title('Prova 1: Acoplamento de VPI no Pacífico pré-Andes (19/12/1995 00Z)\n' +
-              r'Sombreado: VPI em 850 hPa (UVP) | Linhas Pretas Tracejadas: VPI em 400 hPa (UVP) | Linhas Azuis: Geopotencial 400 hPa', fontsize=10)
-    plt.legend(loc='lower left')
+    # Anotações físicas
+    ax.text(-70.0, 750, 'Andes', color='white', fontweight='bold', fontsize=10, ha='center', zorder=7)
+    ax.annotate('Anomalia de Superfície\n(represada a oeste dos Andes)', xy=(-78, 960), xytext=(-88, 880),
+                arrowprops=dict(facecolor='black', arrowstyle='->', lw=1.5),
+                fontsize=9, fontweight='bold', bbox=dict(boxstyle='round,pad=0.3', facecolor='yellow', alpha=0.8))
+    ax.annotate('Intrusão Estratosférica\n(VCAN em altos níveis)', xy=(-88, 380), xytext=(-94, 250),
+                arrowprops=dict(facecolor='black', arrowstyle='->', lw=1.5),
+                fontsize=9, fontweight='bold', bbox=dict(boxstyle='round,pad=0.3', facecolor='cyan', alpha=0.8))
+    
+    ax.set_xlim(-95, -62)
+    ax.set_ylim(1050, 150)
+    ax.set_yscale('log')
+    ax.set_yticks([1000, 925, 850, 700, 500, 400, 300, 250, 200, 150])
+    ax.get_yaxis().set_major_formatter(plt.ScalarFormatter())
+    ax.set_ylabel('Pressão (hPa)', fontweight='bold', fontsize=11)
+    ax.set_xlabel('Longitude (°W)', fontweight='bold', fontsize=11)
+    ax.set_title('Prova 1: Corte Vertical A (35°S) de VPI e Isentrópicas a Oeste dos Andes (18/12/1995 18 UTC)\n' +
+                 'Anomalia ciclônica de superfície (1000-925 hPa) acoplada em λ/4 com o VCAN em altitude (400 hPa)',
+                 fontsize=11, fontweight='bold')
+    ax.legend(loc='lower left', framealpha=0.9)
+    
     out_fig = 'Proof_1_Pacific_Pre_Andes_VPI.png'
     plt.savefig(out_fig, dpi=300, bbox_inches='tight')
     plt.close()
-    print(f"Figura de VPI do Pacífico gerada: {out_fig}")
+    print(f"Corte vertical de VPI do Pacífico gerado: {out_fig}")
 
 def plot_sesa_vpi_and_theta_e(ds_pl):
     """

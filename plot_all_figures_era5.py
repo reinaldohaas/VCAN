@@ -211,7 +211,7 @@ def plot_figure_10_barotropic(ds_pl):
     (a) Parâmetro Qy = beta - d^2(u)/dy^2
     (b) Vento zonal médio u entre 300 e 100 hPa para 22-28/12/1995.
     """
-    u_subset = ds_pl['u'].sel(time=slice('1995-12-22', '1995-12-28'), level=slice(100, 300))
+    u_subset = ds_pl['u'].sel(time=slice('1995-12-22', '1995-12-28'), level=slice(300, 100))
     u_mean = u_subset.mean(dim=['time', 'level'])
     
     lats = u_mean.latitude.values
@@ -237,24 +237,27 @@ def plot_figure_10_barotropic(ds_pl):
     ax1.add_feature(cfeature.BORDERS, linestyle=':', linewidth=0.5)
     lon2d, lat2d = np.meshgrid(lons, lats)
     
-    cq = ax1.contourf(lon2d, lat2d, Qy * 1e11, levels=np.linspace(-5, 5, 21), cmap='RdBu_r', transform=ccrs.PlateCarree(), extend='both')
+    cq = ax1.contourf(lon2d, lat2d, Qy * 1e11, levels=np.linspace(-4, 8, 25), cmap='RdBu_r', transform=ccrs.PlateCarree(), extend='both')
     plt.colorbar(cq, ax=ax1, orientation='horizontal', pad=0.08, label=r'$Q_y \ (\times 10^{-11} \ \mathrm{m}^{-1}\mathrm{s}^{-1})$')
-    ax1.contour(lon2d, lat2d, Qy, levels=[0], colors='black', linewidths=1.5, transform=ccrs.PlateCarree())
+    c_zero = ax1.contour(lon2d, lat2d, Qy, levels=[0], colors='black', linewidths=2.0, transform=ccrs.PlateCarree())
+    ax1.clabel(c_zero, inline=True, fontsize=9, fmt='Qy = 0')
     ax1.set_extent([-85, -25, -50, -10], crs=ccrs.PlateCarree())
-    ax1.set_title(r'(a) Parameter $Q_y = \beta - \frac{d^2\bar{u}}{dy^2}$', fontsize=11)
+    ax1.set_title(r'(a) Parameter $Q_y = \beta - \frac{d^2\bar{u}}{dy^2}$ (Zero line in black)', fontsize=10)
     
     # Painel (b): Vento zonal médio u
     ax2.add_feature(cfeature.COASTLINE, linewidth=0.8)
     ax2.add_feature(cfeature.BORDERS, linestyle=':', linewidth=0.5)
-    cu = ax2.contourf(lon2d, lat2d, u_mean.values, levels=np.arange(0, 45, 5), cmap='Purples', transform=ccrs.PlateCarree())
+    cu = ax2.contourf(lon2d, lat2d, u_mean.values, levels=np.arange(0, 40, 4), cmap='Purples', transform=ccrs.PlateCarree(), extend='both')
     plt.colorbar(cu, ax=ax2, orientation='horizontal', pad=0.08, label=r'$\bar{u}$ (m/s)')
+    c_jet = ax2.contour(lon2d, lat2d, u_mean.values, levels=[20, 25, 30], colors='black', linewidths=1.0, transform=ccrs.PlateCarree())
+    ax2.clabel(c_jet, inline=True, fontsize=8, fmt='%d m/s')
     ax2.set_extent([-85, -25, -50, -10], crs=ccrs.PlateCarree())
-    ax2.set_title(r'(b) Mean Zonal Wind $\bar{u}$ (300-100 hPa)', fontsize=11)
+    ax2.set_title(r'(b) Mean Zonal Wind $\bar{u}$ (300-100 hPa)', fontsize=10)
     
-    plt.suptitle('Figure 10: Barotropic Instability Analysis (22-28 Dec 1995)', fontsize=12, y=0.96)
+    plt.suptitle('Figure 10: Barotropic Instability Diagnostics (22-28 Dec 1995)', fontsize=12, y=0.96)
     plt.savefig('Figure_10_Barotropic_ERA5.png', dpi=300, bbox_inches='tight')
     plt.close()
-    print("Figura 10 (plano limpo) gerada: Figure_10_Barotropic_ERA5.png")
+    print("Figura 10 (Instabilidade Barotrópica preenchida) gerada com sucesso: Figure_10_Barotropic_ERA5.png")
 
 def main():
     ds_pl, ds_sfc, ds_orog = load_era5_data()
