@@ -5,10 +5,15 @@ import cartopy.feature as cfeature
 import numpy as np
 
 def load_era5_data():
-    """Carrega os dados do ERA5 (pressupõe que o download_era5_cds.py já foi executado)"""
+    """Carrega os dados do ERA5 e orografia"""
     try:
         ds_pl = xr.open_dataset('era5_pressure_levels_vcan_1995.nc')
         ds_sfc = xr.open_dataset('era5_surface_vcan_1995.nc')
+        
+        try:
+            ds_orog = xr.open_dataset('era5_surface_orography.nc')
+        except FileNotFoundError:
+            ds_orog = None
         
         # Padroniza coordenadas para time e level
         rename_pl = {}
@@ -22,13 +27,16 @@ def load_era5_data():
         if 'valid_time' in ds_sfc.coords:
             ds_sfc = ds_sfc.rename({'valid_time': 'time'})
             
-        return ds_pl, ds_sfc
+        return ds_pl, ds_sfc, ds_orog
     except FileNotFoundError:
         print("Arquivos ERA5 não encontrados. Execute download_era5_cds.py primeiro.")
-        return None, None
+        return None, None, None
 
 def plot_figure_6_slp_4panel(ds_sfc):
-    """Recria a Figura 6 com 4 painéis (21/12, 22/12, 25/12 e 29/12 às 00 UTC)"""
+    """
+    Recria a Figura 6 com 4 painéis (21/12, 22/12, 25/12 e 29/12 às 00 UTC).
+    Figura estritamente plana: apenas SLP, linhas de costa e fronteiras (sem relevo).
+    """
     dates = ['1995-12-21T00:00', '1995-12-22T00:00', '1995-12-25T00:00', '1995-12-29T00:00']
     titles = ['(a) 21/12/1995 00Z', '(b) 22/12/1995 00Z', '(c) 25/12/1995 00Z', '(d) 29/12/1995 00Z']
     
@@ -51,10 +59,13 @@ def plot_figure_6_slp_4panel(ds_sfc):
     plt.suptitle('Figure 6: Mean Sea Level Pressure (hPa) - ERA5 Reanalysis', fontsize=12, y=0.94)
     plt.savefig('Figure_6_SLP_ERA5.png', dpi=300, bbox_inches='tight')
     plt.close()
-    print("Figura 6 (4 painéis) gerada: Figure_6_SLP_ERA5.png")
+    print("Figura 6 (4 painéis, plano limpo) gerada: Figure_6_SLP_ERA5.png")
 
 def plot_figure_3_ipv_400hPa(ds_pl, date='1995-12-21T00:00'):
-    """Recria a Figura 3 (VPI / Vento e Geopotencial em 400 hPa)"""
+    """
+    Recria a Figura 3 (Vento e Geopotencial em 400 hPa).
+    Figura plana sem relevo sobreposto.
+    """
     fig = plt.figure(figsize=(9, 7))
     ax = plt.axes(projection=ccrs.PlateCarree())
     ax.add_feature(cfeature.COASTLINE, linewidth=0.8)
@@ -85,65 +96,89 @@ def plot_figure_3_ipv_400hPa(ds_pl, date='1995-12-21T00:00'):
     plt.close()
     print(f"Figura 3 gerada para {date[:10]}: Figure_3_400hPa_{date[:10]}.png")
 
-def plot_cross_section(ds_pl, lat_slice=-27.5, date='1995-12-22T00:00'):
-    """Recria cortes verticais de temperatura potencial (isentrópicas)"""
-    fig, ax = plt.subplots(figsize=(9, 5))
+def plot_cross_section(ds_pl, ds_orog=None, lat_slice=-27.5, date='1995-12-22T00:00'):
+    """
+    Recria cortes verticais de temperatura potencial (isentrópicas),
+    com a Cordilheira dos Andes indicada em marrom e máscara subterrânea.
+    """
+    fig, ax = plt.subplots(figsize=(10, 5.5))
     
     data = ds_pl.sel(time=date, latitude=lat_slice, method='nearest')
     lon = data.longitude.values
     levels = data.level.values
-    t = data['t'].values
+    t = data['t'].values.copy()
     
     # Temperatura potencial (theta)
     theta = t * (1000.0 / levels[:, None]) ** 0.286
     
-    c = ax.contour(lon, levels, theta, levels=np.arange(280, 380, 4), colors='crimson', linewidths=1.0)
+    # Se houver dados de relevo/pressão de superfície, mascara abaixo do solo
+    sp_hpa = None
+    if ds_orog is not None:
+        orog_data = ds_orog['sp'].sel(latitude=lat_slice, method='nearest')
+        if 'valid_time' in orog_data.dims and len(orog_data.dims) > 1:
+            orog_data = orog_data.isel(valid_time=0)
+        sp_hpa = (orog_data / 100.0).values
+        
+        # Interpola para a mesma grade de longitude se necessário
+        if len(sp_hpa) != len(lon):
+            sp_hpa = np.interp(lon, ds_orog.longitude.values, sp_hpa)
+            
+        # Mascara a atmosfera subterrânea (onde p > sp)
+        for i, p in enumerate(levels):
+            theta[i, p > sp_hpa] = np.nan
+    
+    # Contornos de temperatura potencial (isentrópicas)
+    c = ax.contour(lon, levels, theta, levels=np.arange(280, 380, 4), colors='crimson', linewidths=1.1)
     ax.clabel(c, inline=True, fontsize=8, fmt='%d K')
+    
+    # Desenha o perfil do relevo (Andes) em marrom
+    if sp_hpa is not None:
+        ax.fill_between(lon, sp_hpa, 1050, color='saddlebrown', alpha=0.95, zorder=5, label='Cordilheira dos Andes')
+        ax.plot(lon, sp_hpa, color='black', linewidth=1.2, zorder=6)
+        
+        # Identificação dos Andes no pico do relevo
+        andes_idx = np.argmin(sp_hpa)
+        ax.text(lon[andes_idx], sp_hpa[andes_idx] + 80, 'Andes', color='white',
+                fontweight='bold', fontsize=9, ha='center', zorder=7)
     
     ax.invert_yaxis()
     ax.set_yscale('log')
+    ax.set_ylim(1050, 100)
     ax.set_yticks([1000, 850, 700, 500, 400, 300, 200, 100])
     ax.get_yaxis().set_major_formatter(plt.ScalarFormatter())
-    ax.set_ylabel('Pressure (hPa)')
-    ax.set_xlabel('Longitude (°W)')
-    ax.set_title(f'Vertical Cross Section (Potential Temperature) at {lat_slice}°S - {date[:10]}', fontsize=11)
+    ax.set_ylabel('Pressure (hPa)', fontweight='bold')
+    ax.set_xlabel('Longitude (°W)', fontweight='bold')
+    ax.set_title(f'Vertical Cross Section (Potential Temperature & Andes Relief) at {lat_slice}°S - {date[:10]}', fontsize=11)
+    ax.legend(loc='lower right', framealpha=0.9)
     
     out_name = f'Cross_Section_{date[:10]}_{lat_slice}S.png'
     plt.savefig(out_name, dpi=300, bbox_inches='tight')
     plt.close()
-    print(f"Corte vertical gerado: {out_name}")
+    print(f"Corte vertical com relevo gerado: {out_name}")
 
 def plot_figure_10_barotropic(ds_pl):
     """
-    Recria a Figura 10:
+    Recria a Figura 10 (plano limpo):
     (a) Parâmetro Qy = beta - d^2(u)/dy^2
-    (b) Vento zonal médio u entre 300 e 100 hPa para o período de 22 a 28/12/1995.
+    (b) Vento zonal médio u entre 300 e 100 hPa para 22-28/12/1995.
     """
-    # Média entre 300 e 100 hPa e período 22 a 28/12/1995
     u_subset = ds_pl['u'].sel(time=slice('1995-12-22', '1995-12-28'), level=slice(100, 300))
     u_mean = u_subset.mean(dim=['time', 'level'])
     
     lats = u_mean.latitude.values
     lons = u_mean.longitude.values
     
-    # Constantes
     omega = 7.292115e-5
     a = 6.371e6
     phi = np.radians(lats)
     
-    # beta = 2 * omega * cos(phi) / a
-    beta = (2.0 * omega * np.cos(phi)) / a # 1D array
-    
-    # Derivada segunda de u em relação a y: d^2(u)/dy^2
-    # dy em metros = a * dphi
+    beta = (2.0 * omega * np.cos(phi)) / a
     dphi = np.radians(np.abs(np.gradient(lats)))
-    dy = a * dphi # 1D array
+    dy = a * dphi
     
-    # Gradiente em y (latitude)
     du_dy = np.gradient(u_mean.values, axis=0) / dy[:, None]
     d2u_dy2 = np.gradient(du_dy, axis=0) / dy[:, None]
     
-    # Qy = beta - d2u/dy2
     Qy = beta[:, None] - d2u_dy2
     
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6), subplot_kw={'projection': ccrs.PlateCarree()})
@@ -170,19 +205,23 @@ def plot_figure_10_barotropic(ds_pl):
     plt.suptitle('Figure 10: Barotropic Instability Analysis (22-28 Dec 1995)', fontsize=12, y=0.96)
     plt.savefig('Figure_10_Barotropic_ERA5.png', dpi=300, bbox_inches='tight')
     plt.close()
-    print("Figura 10 gerada: Figure_10_Barotropic_ERA5.png")
+    print("Figura 10 (plano limpo) gerada: Figure_10_Barotropic_ERA5.png")
 
 def main():
-    ds_pl, ds_sfc = load_era5_data()
+    ds_pl, ds_sfc, ds_orog = load_era5_data()
     if ds_pl is not None and ds_sfc is not None:
-        print("\n--- Gerando Figuras com dados ERA5 ---")
+        print("\n--- Gerando Figuras com Relevo Apenas nos Perfis Verticais ---")
         plot_figure_6_slp_4panel(ds_sfc)
         plot_figure_3_ipv_400hPa(ds_pl, date='1995-12-21T00:00')
         plot_figure_3_ipv_400hPa(ds_pl, date='1995-12-22T00:00')
-        plot_cross_section(ds_pl, lat_slice=-27.5, date='1995-12-21T00:00')
-        plot_cross_section(ds_pl, lat_slice=-27.5, date='1995-12-22T00:00')
+        
+        # Cortes verticais com relevo dos Andes em marrom
+        plot_cross_section(ds_pl, ds_orog=ds_orog, lat_slice=-27.5, date='1995-12-21T00:00')
+        plot_cross_section(ds_pl, ds_orog=ds_orog, lat_slice=-27.5, date='1995-12-22T00:00')
+        plot_cross_section(ds_pl, ds_orog=ds_orog, lat_slice=-35.0, date='1995-12-20T00:00')
+        
         plot_figure_10_barotropic(ds_pl)
-        print("\nTodas as figuras ERA5 foram geradas com sucesso!")
+        print("\nProcessamento concluído com sucesso!")
 
 if __name__ == '__main__':
     main()
