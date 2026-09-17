@@ -61,9 +61,46 @@ def plot_figure_6_slp_4panel(ds_sfc):
     plt.close()
     print("Figura 6 (4 painéis, plano limpo) gerada: Figure_6_SLP_ERA5.png")
 
+def calculate_ertel_vpi(ds_pl, date):
+    """Calcula a VPI de Ertel (UVP) no Hemisfério Sul (q = -P * 1e6)"""
+    levels = ds_pl.level.values * 100.0 # Pa
+    lats = ds_pl.latitude.values
+    lons = ds_pl.longitude.values
+    
+    omega = 7.292115e-5
+    g = 9.80665
+    a = 6.371e6
+    
+    phi = np.radians(lats)
+    f = (2.0 * omega * np.sin(phi))[:, None]
+    
+    dphi = np.radians(np.abs(np.gradient(lats)))
+    dlam = np.radians(np.abs(np.gradient(lons)))
+    dx = a * np.cos(phi[:, None]) * dlam[None, :]
+    dy = a * dphi[:, None]
+    
+    t_data = ds_pl['t'].sel(time=date).values
+    u_data = ds_pl['u'].sel(time=date).values
+    v_data = ds_pl['v'].sel(time=date).values
+    
+    theta = t_data * (100000.0 / levels[:, None, None]) ** 0.286
+    dtheta_dp = np.gradient(theta, levels, axis=0)
+    
+    zeta = np.zeros_like(u_data)
+    for k in range(len(levels)):
+        dv_dx = np.gradient(v_data[k], axis=1) / dx
+        du_dy = np.gradient(u_data[k], axis=0) / dy
+        zeta[k] = dv_dx - du_dy
+        
+    eta = zeta + f[None, :, :]
+    P = -g * eta * dtheta_dp
+    q_uvp = -P * 1e6
+    return q_uvp
+
 def plot_figure_3_ipv_400hPa(ds_pl, date='1995-12-21T00:00'):
     """
-    Recria a Figura 3 (Vento e Geopotencial em 400 hPa).
+    Recria a Figura 3: VPI (UVP) em coordenada isobárica, altura do geopotencial (m)
+    e vetores de vento no nível de 400 hPa.
     Figura plana sem relevo sobreposto.
     """
     fig = plt.figure(figsize=(9, 7))
@@ -72,17 +109,29 @@ def plot_figure_3_ipv_400hPa(ds_pl, date='1995-12-21T00:00'):
     ax.add_feature(cfeature.BORDERS, linestyle=':', linewidth=0.5)
     
     level = 400
+    levels_list = list(ds_pl.level.values)
+    k400 = levels_list.index(level)
+    
+    q_uvp = calculate_ertel_vpi(ds_pl, date)
+    q400 = q_uvp[k400]
+    
     u = ds_pl['u'].sel(time=date, level=level).values
     v = ds_pl['v'].sel(time=date, level=level).values
     z = ds_pl['z'].sel(time=date, level=level).values / 9.80665 # Geopotencial em gpm
     
     lon, lat = np.meshgrid(ds_pl.longitude, ds_pl.latitude)
-    wspd = np.sqrt(u**2 + v**2)
     
-    cf = ax.contourf(lon, lat, wspd, levels=np.arange(10, 60, 5), cmap='YlOrRd', transform=ccrs.PlateCarree())
-    plt.colorbar(cf, ax=ax, orientation='horizontal', pad=0.06, label='Wind Speed (m/s)')
+    # Preenchimento em cores da VPI ciclônica em UVP (valores > 0.4 UVP)
+    cf = ax.contourf(lon, lat, q400, levels=np.linspace(0.4, 2.6, 12), cmap='YlOrRd',
+                     transform=ccrs.PlateCarree(), extend='both')
+    plt.colorbar(cf, ax=ax, orientation='horizontal', pad=0.06, label=r'Vorticidade Potencial Isentrópica - VPI em 400 hPa (UVP)')
     
-    cz = ax.contour(lon, lat, z, levels=np.arange(6800, 7600, 60), colors='black', linewidths=1.0, transform=ccrs.PlateCarree())
+    # Contorno da tropopausa dinâmica em 400 hPa (1.5 UVP) em linha vermelha espessa
+    c_tropo = ax.contour(lon, lat, q400, levels=[1.5], colors='red', linewidths=2.0, transform=ccrs.PlateCarree())
+    ax.clabel(c_tropo, inline=True, fontsize=8, fmt='Tropopausa (1.5 UVP)')
+    
+    # Geopotencial em linhas pretas
+    cz = ax.contour(lon, lat, z, levels=np.arange(6800, 7600, 60), colors='black', linewidths=1.1, transform=ccrs.PlateCarree())
     ax.clabel(cz, inline=True, fontsize=7, fmt='%d')
     
     # Vetores de vento espaçados
@@ -91,10 +140,10 @@ def plot_figure_3_ipv_400hPa(ds_pl, date='1995-12-21T00:00'):
               transform=ccrs.PlateCarree(), scale=400, color='darkblue', width=0.002)
     
     ax.set_extent([-85, -25, -50, -10], crs=ccrs.PlateCarree())
-    plt.title(f'Figure 3: Geopotential Height (m) and Wind at 400 hPa - {date[:10]}', fontsize=11)
+    plt.title(f'Figure 3: Isentropic Potential Vorticity (UVP), Height & Wind at 400 hPa - {date[:10]}', fontsize=10)
     plt.savefig(f'Figure_3_400hPa_{date[:10]}.png', dpi=300, bbox_inches='tight')
     plt.close()
-    print(f"Figura 3 gerada para {date[:10]}: Figure_3_400hPa_{date[:10]}.png")
+    print(f"Figura 3 (VPI de Ertel em 400 hPa) gerada para {date[:10]}: Figure_3_400hPa_{date[:10]}.png")
 
 def plot_cross_section(ds_pl, ds_orog=None, lat_slice=-27.5, date='1995-12-22T00:00'):
     """
