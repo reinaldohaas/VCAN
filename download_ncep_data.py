@@ -23,8 +23,12 @@ def download_and_subset_ncep(variable, level_type='pressure'):
     
     try:
         ds = xr.open_dataset(url)
-        # Recortando tempo e espaço
-        ds_subset = ds.sel(time=time_slice, lon=lon_slice, lat=lat_slice)
+        # Recortando tempo e espaço e carregando na memória
+        ds_subset = ds.sel(time=time_slice, lon=lon_slice, lat=lat_slice).load()
+        
+        # Limpando metadados de encoding conflitantes vindos do OPeNDAP
+        for var in ds_subset.variables:
+            ds_subset[var].encoding.clear()
         
         # Salvando os dados localmente
         out_file = f"{variable}_1995_subset.nc"

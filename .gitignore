@@ -1,0 +1,8 @@
+# Grandes arquivos de dados que ultrapassam o limite de 100MB do GitHub
+era5_pressure_levels_vcan_1995.nc
+
+# Arquivos temporários do LaTeX
+*.synctex.gz
+*.aux
+*.log
+*.out
