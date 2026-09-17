@@ -8,9 +8,10 @@ def get_gee_satellite_data():
     Atenção: É necessário autenticar primeiro rodando `earthengine authenticate` ou `ee.Authenticate()`.
     """
     try:
-        ee.Initialize()
+        # Inicializa com o seu projeto Google Cloud configurado
+        ee.Initialize(project='labmit-ufsc-6aa9c')
     except Exception as e:
-        print("Erro ao inicializar o Earth Engine. Por favor, faça a autenticação (ee.Authenticate()).")
+        print("Erro ao inicializar o Earth Engine. Por favor, rode 'earthengine authenticate' no seu terminal primeiro.")
         return
 
     # A coleção de imagens do GOES-8 no GEE. 
