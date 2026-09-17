@@ -32,34 +32,57 @@ def load_era5_data():
         print("Arquivos ERA5 não encontrados. Execute download_era5_cds.py primeiro.")
         return None, None, None
 
-def plot_figure_6_slp_4panel(ds_sfc):
+def plot_figure_6_slp_4panel(ds_sfc, ds_orog=None):
     """
     Recria a Figura 6 com 4 painéis (21/12, 22/12, 25/12 e 29/12 às 00 UTC).
-    Figura estritamente plana: apenas SLP, linhas de costa e fronteiras (sem relevo).
+    Elimina o ruído/borrão de redução barométrica sobre os Andes aplicando suavização
+    gaussiana e mascarando o cume da cordilheira (> 2000 m).
     """
+    import scipy.ndimage as ndimage
+    
     dates = ['1995-12-21T00:00', '1995-12-22T00:00', '1995-12-25T00:00', '1995-12-29T00:00']
     titles = ['(a) 21/12/1995 00Z', '(b) 22/12/1995 00Z', '(c) 25/12/1995 00Z', '(d) 29/12/1995 00Z']
+    
+    z_orog = None
+    mask_andes = None
+    if ds_orog is not None:
+        z_orog = (ds_orog['z'].isel(valid_time=0) / 9.80665).values
+        mask_andes = z_orog > 2000.0
     
     fig, axes = plt.subplots(2, 2, figsize=(12, 11), subplot_kw={'projection': ccrs.PlateCarree()})
     
     for ax, date, title in zip(axes.flat, dates, titles):
-        ax.add_feature(cfeature.COASTLINE, linewidth=0.8)
+        ax.add_feature(cfeature.COASTLINE, linewidth=0.9)
         ax.add_feature(cfeature.BORDERS, linestyle=':', linewidth=0.5)
         
         # Pressão ao nível do mar convertida para hPa
-        slp = ds_sfc['msl'].sel(time=date) / 100.0
-        lon, lat = np.meshgrid(slp.longitude, slp.latitude)
+        slp_raw = (ds_sfc['msl'].sel(time=date) / 100.0).values
         
-        contours = ax.contour(lon, lat, slp, levels=np.arange(990, 1032, 4), colors='blue', linewidths=0.9, transform=ccrs.PlateCarree())
-        ax.clabel(contours, inline=True, fontsize=7, fmt='%d')
+        # Suavização para eliminar ruído da extrapolação barométrica do ERA5
+        slp_smooth = ndimage.gaussian_filter(slp_raw, sigma=1.2)
+        
+        lon, lat = np.meshgrid(ds_sfc.longitude, ds_sfc.latitude)
+        
+        # Mascara o cume dos Andes (> 2000m) e preenche em cinza suave
+        if mask_andes is not None:
+            ax.contourf(lon, lat, mask_andes.astype(float), levels=[0.5, 1.5],
+                        colors=['#e0e0e0'], transform=ccrs.PlateCarree(), zorder=3)
+            slp_plot = slp_smooth.copy()
+            slp_plot[mask_andes] = np.nan
+        else:
+            slp_plot = slp_smooth
+            
+        contours = ax.contour(lon, lat, slp_plot, levels=np.arange(990, 1032, 4),
+                              colors='darkblue', linewidths=1.2, transform=ccrs.PlateCarree(), zorder=4)
+        ax.clabel(contours, inline=True, fontsize=8, fmt='%d')
         
         ax.set_extent([-85, -25, -50, -10], crs=ccrs.PlateCarree())
         ax.set_title(title, fontsize=10, fontweight='bold')
     
-    plt.suptitle('Figure 6: Mean Sea Level Pressure (hPa) - ERA5 Reanalysis', fontsize=12, y=0.94)
+    plt.suptitle('Figure 4: Mean Sea Level Pressure (hPa) - ERA5 Reanalysis\n(High Andes topography > 2000 m masked in gray)', fontsize=12, y=0.95)
     plt.savefig('Figure_6_SLP_ERA5.png', dpi=300, bbox_inches='tight')
     plt.close()
-    print("Figura 6 (4 painéis, plano limpo) gerada: Figure_6_SLP_ERA5.png")
+    print("Figura 6 (SLP limpa sem borrão nos Andes) gerada com sucesso: Figure_6_SLP_ERA5.png")
 
 def calculate_ertel_vpi(ds_pl, date):
     """Calcula a VPI de Ertel (UVP) no Hemisfério Sul (q = -P * 1e6)"""
@@ -263,7 +286,7 @@ def main():
     ds_pl, ds_sfc, ds_orog = load_era5_data()
     if ds_pl is not None and ds_sfc is not None:
         print("\n--- Gerando Figuras com Relevo Apenas nos Perfis Verticais ---")
-        plot_figure_6_slp_4panel(ds_sfc)
+        plot_figure_6_slp_4panel(ds_sfc, ds_orog=ds_orog)
         plot_figure_3_ipv_400hPa(ds_pl, date='1995-12-21T00:00')
         plot_figure_3_ipv_400hPa(ds_pl, date='1995-12-22T00:00')
         
