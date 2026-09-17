@@ -263,51 +263,133 @@ def generate_figure_3(ds_pl, ds_orog):
     print(f"Saved: {out_file}")
 
 # ==============================================================
-# FIGURA 4: Pressão ao Nível do Mar (4 painéis)
+# FIGURA 4: Pressão ao Nível do Mar e Ciclogênese a Sotavento (Mendoza)
 # ==============================================================
 def generate_figure_4(ds_sfc, ds_orog):
-    print("Generating Figure 4 (Mean Sea Level Pressure)...")
-    dates = ['1995-12-21T00:00', '1995-12-22T00:00', '1995-12-25T00:00', '1995-12-29T00:00']
-    titles = [
-        '(a) 21/12/1995 00 UTC: Lee Low / BNOA (L: 989.6 hPa)',
-        '(b) 22/12/1995 00 UTC: Coastal Transit (L: 1003.3 hPa)',
-        '(c) 25/12/1995 00 UTC: Decaying Trough & Atlantic Ridge (H: 1022 hPa)',
-        '(d) 29/12/1995 00 UTC: Dissipation Stage'
-    ]
+    print("Generating Figure 4 (Mean Sea Level Pressure & Mendoza Lee Deepening)...")
+    
+    # Carrega dados horários de Mendoza se disponíveis
+    ds_h = None
+    if os.path.exists('era5_hourly_mendoza_1995.nc'):
+        ds_h = xr.open_dataset('era5_hourly_mendoza_1995.nc')
     
     z_orog = (ds_orog['z'].isel(valid_time=0) / G).values
     mask_andes = z_orog > 2000.0
     lon2d, lat2d = np.meshgrid(ds_sfc.longitude, ds_sfc.latitude)
     
-    fig, axes = plt.subplots(2, 2, figsize=(13, 11), subplot_kw={'projection': ccrs.PlateCarree()}, constrained_layout=True)
+    fig = plt.figure(figsize=(15, 12))
     
-    for ax, date, title in zip(axes.flat, dates, titles):
-        ax.add_feature(cfeature.COASTLINE, linewidth=0.9)
-        ax.add_feature(cfeature.BORDERS, linestyle=':', linewidth=0.5)
+    # Painel (a): Zoom regional de Mendoza no mínimo de pressão (20/12 19 UTC) com intervalos de 2 hPa
+    ax1 = fig.add_subplot(2, 2, 1, projection=ccrs.PlateCarree())
+    ax1.add_feature(cfeature.COASTLINE, linewidth=1.0)
+    ax1.add_feature(cfeature.BORDERS, linestyle='--', linewidth=0.8)
+    
+    m_lat, m_lon = -32.89, -68.84
+    
+    if ds_h is not None:
+        t_peak = '1995-12-20T19:00'
+        slp_peak = (ds_h['msl'].sel(valid_time=t_peak).values) / 100.0
+        slp_peak_smooth = ndimage.gaussian_filter(slp_peak, sigma=1.0)
+        lon_h, lat_h = np.meshgrid(ds_h.longitude, ds_h.latitude)
         
-        slp_raw = (ds_sfc['msl'].sel(time=date) / 100.0).values
-        slp_smooth = ndimage.gaussian_filter(slp_raw, sigma=1.2)
+        sub_z = ds_orog['z'].isel(valid_time=0).interp(latitude=ds_h.latitude, longitude=ds_h.longitude).values / G
+        mask_peak_andes = sub_z > 2000.0
         
-        slp_plot = slp_smooth.copy()
-        slp_plot[mask_andes] = np.nan
+        ax1.contourf(lon_h, lat_h, mask_peak_andes.astype(float), levels=[0.5, 1.5], colors=['#d0d0d0'], zorder=3)
+        slp_peak_plot = np.where(mask_peak_andes, np.nan, slp_peak_smooth)
         
-        ax.contourf(lon2d, lat2d, mask_andes.astype(float), levels=[0.5, 1.5],
-                    colors=['#e0e0e0'], transform=ccrs.PlateCarree(), zorder=3)
-                    
-        contours = ax.contour(lon2d, lat2d, slp_plot, levels=np.arange(988, 1032, 4),
-                              colors='darkblue', linewidths=1.2, transform=ccrs.PlateCarree(), zorder=4)
-        ax.clabel(contours, inline=True, fontsize=8, fmt='%d')
+        # Intervalos de 2 hPa conforme solicitado pelo usuário
+        levels_2hpa = np.arange(986, 1024, 2)
+        c1 = ax1.contour(lon_h, lat_h, slp_peak_plot, levels=levels_2hpa, colors='darkblue', linewidths=1.3, zorder=4)
+        ax1.clabel(c1, inline=True, fontsize=8, fmt='%d')
         
-        gl = ax.gridlines(draw_labels=True, linewidth=0.5, color='gray', alpha=0.5, linestyle='--')
-        gl.top_labels = False
-        gl.right_labels = False
-        ax.set_extent([-90, -30, -50, -10], crs=ccrs.PlateCarree())
-        ax.set_title(title, fontsize=10, fontweight='bold')
+        ax1.plot(m_lon, m_lat, marker='*', markersize=14, color='red', markeredgecolor='black', zorder=10)
+        ax1.text(m_lon + 0.3, m_lat - 0.2, 'Mendoza\n995.1 hPa', fontsize=10, fontweight='bold', color='darkred', zorder=10,
+                 bbox=dict(boxstyle='round,pad=0.2', facecolor='white', alpha=0.8, edgecolor='red'))
         
+        ax1.set_extent([-73, -63, -37, -26], crs=ccrs.PlateCarree())
+        ax1.set_title('(a) Regional Zoom: Mendoza & Cuyo at SLP Minimum\n20/12/1995 19:00 UTC (Contour interval: 2 hPa)', fontsize=11, fontweight='bold')
+    else:
+        # Fallback usando dados 6-horários
+        slp_peak = (ds_sfc['msl'].sel(time='1995-12-20T18:00').values) / 100.0
+        slp_peak_smooth = ndimage.gaussian_filter(slp_peak, sigma=1.0)
+        slp_peak_plot = np.where(mask_andes, np.nan, slp_peak_smooth)
+        ax1.contourf(lon2d, lat2d, mask_andes.astype(float), levels=[0.5, 1.5], colors=['#d0d0d0'], zorder=3)
+        c1 = ax1.contour(lon2d, lat2d, slp_peak_plot, levels=np.arange(986, 1024, 2), colors='darkblue', linewidths=1.3, zorder=4)
+        ax1.clabel(c1, inline=True, fontsize=8, fmt='%d')
+        ax1.plot(m_lon, m_lat, marker='*', markersize=14, color='red', markeredgecolor='black', zorder=10)
+        ax1.text(m_lon + 0.3, m_lat - 0.2, 'Mendoza\n995.7 hPa', fontsize=10, fontweight='bold', color='darkred', zorder=10)
+        ax1.set_extent([-73, -63, -37, -26], crs=ccrs.PlateCarree())
+        ax1.set_title('(a) Regional Zoom: Mendoza & Cuyo (20/12 18 UTC, 2 hPa intervals)', fontsize=11, fontweight='bold')
+        
+    gl1 = ax1.gridlines(draw_labels=True, linestyle=':', alpha=0.6)
+    gl1.top_labels = False
+    gl1.right_labels = False
+    
+    # Painel (b): Evolução horária da pressão em Mendoza (18 a 22/12)
+    ax2 = fig.add_subplot(2, 2, 2)
+    if ds_h is not None:
+        times_h = ds_h.valid_time.values
+        ilat = np.abs(ds_h.latitude.values - m_lat).argmin()
+        ilon = np.abs(ds_h.longitude.values - m_lon).argmin()
+        slp_mendoza = ds_h['msl'][:, ilat, ilon].values / 100.0
+        time_hours = [(t - times_h[0]) / np.timedelta64(1, 'h') for t in times_h]
+        
+        ax2.plot(time_hours, slp_mendoza, color='darkblue', linewidth=2.0, marker='o', markersize=3, label='Hourly SLP at Mendoza (33°S, 68.8°W)')
+        idx_min = np.argmin(slp_mendoza)
+        ax2.plot(time_hours[idx_min], slp_mendoza[idx_min], marker='*', markersize=15, color='red', markeredgecolor='black',
+                 label=f'Min: {slp_mendoza[idx_min]:.1f} hPa (20/12 19Z)')
+        
+        ax2.set_xlabel('Hours since 18/12 00:00 UTC', fontsize=10, fontweight='bold')
+        ax2.set_ylabel('Mean Sea Level Pressure (hPa)', fontsize=10, fontweight='bold')
+        ax2.set_title('(b) Hourly Pressure Evolution at Mendoza (18-22 Dec 1995)\nMax 24h drop: 12.8 hPa | 30h drop: 15.9 hPa', fontsize=11, fontweight='bold')
+        ax2.grid(True, linestyle='--', alpha=0.5)
+        xticks = [0, 24, 48, 72, 96]
+        xlabels = ['18/12 00Z', '19/12 00Z', '20/12 00Z', '21/12 00Z', '22/12 00Z']
+        ax2.set_xticks(xticks)
+        ax2.set_xticklabels(xlabels)
+        ax2.legend(loc='upper right', fontsize=9)
+    else:
+        ax2.text(0.5, 0.5, 'Dados horários não encontrados', ha='center')
+        
+    # Painel (c): 22/12 00 UTC - Ciclone sobre o Uruguai
+    ax3 = fig.add_subplot(2, 2, 3, projection=ccrs.PlateCarree())
+    ax3.add_feature(cfeature.COASTLINE, linewidth=0.9)
+    ax3.add_feature(cfeature.BORDERS, linestyle=':', linewidth=0.5)
+    slp_22 = (ds_sfc['msl'].sel(time='1995-12-22T00:00').values) / 100.0
+    slp_22_smooth = ndimage.gaussian_filter(slp_22, sigma=1.2)
+    ax3.contourf(lon2d, lat2d, mask_andes.astype(float), levels=[0.5, 1.5], colors=['#e0e0e0'], zorder=3)
+    slp_22_plot = np.where(mask_andes, np.nan, slp_22_smooth)
+    c3 = ax3.contour(lon2d, lat2d, slp_22_plot, levels=np.arange(990, 1032, 4), colors='darkblue', linewidths=1.2, zorder=4)
+    ax3.clabel(c3, inline=True, fontsize=8, fmt='%d')
+    ax3.set_extent([-85, -25, -50, -10], crs=ccrs.PlateCarree())
+    ax3.set_title('(c) 22/12/1995 00 UTC: Uruguay Surface Cyclone (L: 1003.3 hPa)', fontsize=10, fontweight='bold')
+    gl3 = ax3.gridlines(draw_labels=True, linestyle=':', alpha=0.5)
+    gl3.top_labels = False
+    gl3.right_labels = False
+    
+    # Painel (d): 25/12 00 UTC - Cavado em dissipação
+    ax4 = fig.add_subplot(2, 2, 4, projection=ccrs.PlateCarree())
+    ax4.add_feature(cfeature.COASTLINE, linewidth=0.9)
+    ax4.add_feature(cfeature.BORDERS, linestyle=':', linewidth=0.5)
+    slp_25 = (ds_sfc['msl'].sel(time='1995-12-25T00:00').values) / 100.0
+    slp_25_smooth = ndimage.gaussian_filter(slp_25, sigma=1.2)
+    ax4.contourf(lon2d, lat2d, mask_andes.astype(float), levels=[0.5, 1.5], colors=['#e0e0e0'], zorder=3)
+    slp_25_plot = np.where(mask_andes, np.nan, slp_25_smooth)
+    c4 = ax4.contour(lon2d, lat2d, slp_25_plot, levels=np.arange(990, 1032, 4), colors='darkblue', linewidths=1.2, zorder=4)
+    ax4.clabel(c4, inline=True, fontsize=8, fmt='%d')
+    ax4.set_extent([-85, -25, -50, -10], crs=ccrs.PlateCarree())
+    ax4.set_title('(d) 25/12/1995 00 UTC: Decaying Coastal Trough (L: 1008.0 hPa)', fontsize=10, fontweight='bold')
+    gl4 = ax4.gridlines(draw_labels=True, linestyle=':', alpha=0.5)
+    gl4.top_labels = False
+    gl4.right_labels = False
+    
+    plt.suptitle('Figure 4: Mean Sea Level Pressure Evolution & Mendoza Lee Deepening (ERA5 Reanalysis)', fontsize=13, y=0.95, fontweight='bold')
     out_file = 'Figure_4_SLP_ERA5.png'
     plt.savefig(out_file, dpi=250, bbox_inches='tight')
     plt.close()
     print(f"Saved: {out_file}")
+
 
 # ==============================================================
 # FIGURA 5: VPI de Ertel em 400 hPa em 22/12 00Z (Pico SESA)
@@ -493,91 +575,174 @@ def generate_figure_7(ds_pl):
     print(f"Saved: {out_file}")
 
 # ==============================================================
-# FIGURA 8: Rastreamento do Vórtice e Evolução de Intensidade
+# FIGURA 8: Rastreamento do Vórtice e Trajetória Completa (Tese Haas, 2002)
 # ==============================================================
-def generate_figure_8(ds_pl):
-    print("Generating Figure 8 (Vortex Northward Tracking & Intensity)...")
-    times = ds_pl.time.sel(time=slice('1995-12-21', '1995-12-28')).values[::2]
-    lats = ds_pl.latitude.values
-    lons = ds_pl.longitude.values
+def generate_figure_8(ds_pl, ds_orog=None):
+    print("Generating Figure 8 (Full Vortex Lifecycle Track & Intensity)...")
+    
+    # Carrega dados do Pacífico para a gênese se disponíveis
+    ds_pac = None
+    if os.path.exists('era5_400hpa_pacific_genesis.nc'):
+        ds_pac = xr.open_dataset('era5_400hpa_pacific_genesis.nc')
+        if 'valid_time' in ds_pac.coords:
+            ds_pac = ds_pac.rename({'valid_time': 'time', 'pressure_level': 'level'})
+            
+    z_main = ds_pl['z'].sel(level=400).squeeze(drop=True) / G
+    z_pac = None
+    if ds_pac is not None:
+        z_pac = ds_pac['z'].squeeze(drop=True) / G
+        
+    common_lats = np.arange(-15.0, -50.25, -0.25)
+    common_lons = np.arange(-110.0, -29.75, 0.25)
+    times = ds_pl.time.sel(time=slice('1995-12-14T06:00', '1995-12-31T18:00')).values
+    
     levels_list = list(ds_pl.level.values)
     k400 = levels_list.index(400)
     
-    cur_lat, cur_lon = -35.5, -69.0
-    centers_lat = []
-    centers_lon = []
-    z_anoms = []
-    q400_vals = []
-    dates_str = []
+    cur_lat, cur_lon = -28.0, -103.75
+    pts = []
     
-    print("\n--- Vortex Tracking Table (TAREFA 1 Validation) ---")
-    for t in times:
-        t_str = str(t)[:13]
-        z = (ds_pl['z'].sel(time=t, level=400) / G).values
-        z_zonal = np.nanmean(z, axis=1, keepdims=True)
-        z_anom = z - z_zonal
+    print("\n--- Rastreamento Completo do VCAN (14 a 31/12/1995) ---")
+    for i, t in enumerate(times):
+        t_str = str(t)[:16]
+        sub_main = z_main.sel(time=t).interp(latitude=common_lats, longitude=common_lons, method='nearest').values
+        z_grid = sub_main.copy()
+        if z_pac is not None and t in z_pac.time.values:
+            sub_pac = z_pac.sel(time=t).interp(latitude=common_lats, longitude=common_lons, method='nearest').values
+            west_mask = common_lons < -90.0
+            z_grid[:, west_mask] = sub_pac[:, west_mask]
+            
+        z_anom = z_grid - np.nanmean(z_grid, axis=1, keepdims=True)
+        dist = np.sqrt((common_lats[:, None] - cur_lat)**2 + (common_lons[None, :] - cur_lon)**2)
+        sub_anom = np.where(dist <= 4.5, z_anom, np.nan)
         
-        dist = np.sqrt((lats[:, None] - cur_lat)**2 + (lons[None, :] - cur_lon)**2)
-        local_mask = dist <= 5.5
-        
-        sub_anom = np.where(local_mask, z_anom, np.nan)
         min_idx = np.unravel_index(np.nanargmin(sub_anom), sub_anom.shape)
-        cur_lat = float(lats[min_idx[0]])
-        cur_lon = float(lons[min_idx[1]])
+        cur_lat = float(common_lats[min_idx[0]])
+        cur_lon = float(common_lons[min_idx[1]])
         val_anom = float(sub_anom[min_idx])
         
-        q_all, _ = calculate_ertel_vpi(ds_pl, t)
-        q400 = q_all[k400]
-        c_dist = np.sqrt((lats[:, None] - cur_lat)**2 + (lons[None, :] - cur_lon)**2)
-        local_q = float(np.nanmax(q400[c_dist <= 3.0]))
-        
-        centers_lat.append(cur_lat)
-        centers_lon.append(cur_lon)
-        z_anoms.append(val_anom)
-        q400_vals.append(local_q)
-        dates_str.append(t_str[5:])
-        print(f"  {t_str}: Lat={cur_lat:6.2f}°S, Lon={cur_lon:6.2f}°W | z_anom={val_anom:6.1f} m | q400={local_q:4.2f} UVP")
-        
-    fig = plt.figure(figsize=(14, 6))
+        q_val = np.nan
+        if cur_lon >= -89.0:
+            q_all, _ = calculate_ertel_vpi(ds_pl, t)
+            q400 = q_all[k400]
+            c_dist = np.sqrt((ds_pl.latitude.values[:, None] - cur_lat)**2 + (ds_pl.longitude.values[None, :] - cur_lon)**2)
+            q_val = float(np.nanmax(q400[c_dist <= 3.0]))
+            
+        # 5 Fases conforme Haas (2002):
+        if i < 14:
+            phase = 1 # Formação Pacífico (14-17/12)
+        elif i < 24:
+            phase = 2 # Intensificação Baroclínica (17-20/12)
+        elif i < 28:
+            phase = 3 # Travessia dos Andes (20-21/12)
+        elif i < 58:
+            phase = 4 # Fase Madura / SESA e trajetória anômala (21-28/12)
+        else:
+            phase = 5 # Desintensificação / Atlântico (28-31/12)
+            
+        pts.append({
+            'pt': i + 1, 'time': t_str, 'lat': cur_lat, 'lon': cur_lon,
+            'z_anom': val_anom, 'q400': q_val, 'phase': phase
+        })
+        if i % 8 == 0 or i == len(times) - 1:
+            q_str = f"{q_val:4.2f} UVP" if not np.isnan(q_val) else "  N/A   "
+            print(f"  Pt {i+1:2d} ({t_str}): Lat={cur_lat:6.2f}°S, Lon={cur_lon:6.2f}°W | z_anom={val_anom:6.1f} m | q400={q_str} | Fase {phase}")
+
+    fig = plt.figure(figsize=(16, 7))
     
-    # Subplot 1: Mapa da Trajetória
+    # Subplot 1: Mapa Completo da Trajetória
     ax1 = fig.add_subplot(1, 2, 1, projection=ccrs.PlateCarree())
     ax1.add_feature(cfeature.COASTLINE, linewidth=0.9)
     ax1.add_feature(cfeature.BORDERS, linestyle=':', linewidth=0.5)
     
-    sc = ax1.scatter(centers_lon, centers_lat, c=q400_vals, cmap='plasma', s=120, edgecolors='black',
-                     vmin=0.6, vmax=4.0, zorder=5, transform=ccrs.PlateCarree())
-    cbar = plt.colorbar(sc, ax=ax1, orientation='horizontal', pad=0.08, label='400 hPa Cyclonic IPV (UVP)')
-    ax1.plot(centers_lon, centers_lat, color='black', linewidth=1.5, linestyle='--', transform=ccrs.PlateCarree())
+    if ds_orog is not None:
+        z_orog = (ds_orog['z'].isel(valid_time=0) / G).values
+        lon_orog, lat_orog = np.meshgrid(ds_orog.longitude, ds_orog.latitude)
+        ax1.contourf(lon_orog, lat_orog, (z_orog > 2000.0).astype(float), levels=[0.5, 1.5],
+                     colors=['#e0e0e0'], zorder=2, transform=ccrs.PlateCarree())
+                     
+    all_lons = [p['lon'] for p in pts]
+    all_lats = [p['lat'] for p in pts]
+    ax1.plot(all_lons, all_lats, color='gray', linewidth=1.2, linestyle='--', zorder=3, transform=ccrs.PlateCarree())
     
-    for i, (x, y, dt) in enumerate(zip(centers_lon, centers_lat, dates_str)):
-        if i % 2 == 0:
-            ax1.text(x + 0.6, y, dt, fontsize=8, fontweight='bold', transform=ccrs.PlateCarree())
-            
-    gl = ax1.gridlines(draw_labels=True, linewidth=0.5, color='gray', alpha=0.5, linestyle='--')
+    phase_styles = {
+        1: {'marker': 's', 'facecolor': 'white', 'edgecolor': 'navy', 'label': 'Fase 1: Formação no Pacífico (14–17/12)', 'size': 45},
+        2: {'marker': 'o', 'facecolor': 'blue', 'edgecolor': 'black', 'label': 'Fase 2: Intensificação Baroclínica (18–20/12)', 'size': 50},
+        3: {'marker': 'o', 'facecolor': 'white', 'edgecolor': 'crimson', 'label': 'Fase 3: Travessia dos Andes (20–21/12)', 'size': 60},
+        4: {'marker': 's', 'facecolor': 'crimson', 'edgecolor': 'black', 'label': 'Fase 4: Fase Madura / SESA (22–28/12)', 'size': 55},
+        5: {'marker': 'D', 'facecolor': 'white', 'edgecolor': 'purple', 'label': 'Fase 5: Desintensificação / Atlântico (28–31/12)', 'size': 45}
+    }
+    
+    for ph, style in phase_styles.items():
+        ph_pts = [p for p in pts if p['phase'] == ph]
+        lons = [p['lon'] for p in ph_pts]
+        lats = [p['lat'] for p in ph_pts]
+        ax1.scatter(lons, lats, marker=style['marker'], facecolors=style['facecolor'],
+                    edgecolors=style['edgecolor'], s=style['size'], linewidths=1.5,
+                    label=style['label'], zorder=5, transform=ccrs.PlateCarree())
+                    
+    key_annotations = [
+        (pts[0], '14/12 06Z\n(Início VCAN)', (-10, 15)),
+        (pts[14], '18/12 00Z\n(Intensif.)', (-25, -25)),
+        (pts[24], '20/12 06Z\n(Andes)', (10, -15)),
+        (pts[28], '21/12 06Z\n(Sotavento)', (10, -20)),
+        (pts[31], '22/12 00Z\n(Pico SESA)', (10, 10)),
+        (pts[57], '28/12 12Z\n(Deflexão N)', (-35, 12)),
+        (pts[-1], '31/12 18Z\n(Decaimento)', (10, -10))
+    ]
+    
+    for p_item, text, offset in key_annotations:
+        ax1.annotate(text, xy=(p_item['lon'], p_item['lat']), xytext=offset,
+                     textcoords='offset points', fontsize=7.5, fontweight='bold',
+                     bbox=dict(boxstyle='round,pad=0.2', facecolor='yellow', alpha=0.7, edgecolor='black'),
+                     arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0', color='black', lw=0.8),
+                     transform=ccrs.PlateCarree(), zorder=10)
+                     
+    ax1.set_extent([-110, -32, -44, -18], crs=ccrs.PlateCarree())
+    ax1.set_title('(a) Trajetória Completa do VCAN em 400 hPa (14 a 31/12/1995)\nClassificação em 5 Fases Conforme Tese (Haas, 2002)', fontsize=10.5, fontweight='bold')
+    gl = ax1.gridlines(draw_labels=True, linestyle=':', alpha=0.5)
     gl.top_labels = False
     gl.right_labels = False
-    ax1.set_extent([-72, -45, -40, -20], crs=ccrs.PlateCarree())
-    ax1.set_title('(a) Track of the UTCV 400 hPa Center (21-28 Dec 1995)\nSystematic Northward Migration from ~35.5°S to ~24.3°S', fontsize=10, fontweight='bold')
+    ax1.legend(loc='lower left', fontsize=7.5, framealpha=0.9)
     
-    # Subplot 2: Evolução temporal
+    # Subplot 2: Evolução temporal do Vórtice
     ax2 = fig.add_subplot(1, 2, 2)
+    dates_str = [p['time'][5:] for p in pts]
+    z_anoms = [p['z_anom'] for p in pts]
+    q400_vals = [p['q400'] for p in pts]
+    x_indices = np.arange(len(pts))
+    
     color = 'tab:blue'
-    ax2.set_xlabel('Time (MM-DD HH)', fontweight='bold', fontsize=10)
-    ax2.set_ylabel('Central Geopotential Anomaly at 400 hPa (m)', color=color, fontweight='bold', fontsize=10)
-    ax2.plot(dates_str, z_anoms, color=color, marker='o', linewidth=2.0, label='z400 Anomaly (m)')
+    ax2.set_xlabel('Data / Hora (MM-DD HH)', fontweight='bold', fontsize=10)
+    ax2.set_ylabel('Anomalia Central de Geopotencial em 400 hPa (m)', color=color, fontweight='bold', fontsize=10)
+    ax2.plot(x_indices, z_anoms, color=color, marker='o', markersize=3.5, linewidth=1.8, label="Anomalia z400' (m)")
     ax2.tick_params(axis='y', labelcolor=color)
-    ax2.tick_params(axis='x', rotation=45, labelsize=8)
-    ax2.grid(True, linestyle='--', alpha=0.4)
     
     ax3 = ax2.twinx()
     color = 'crimson'
-    ax3.set_ylabel('Max Cyclonic IPV at 400 hPa (UVP)', color=color, fontweight='bold', fontsize=10)
-    ax3.plot(dates_str, q400_vals, color=color, marker='s', linestyle='--', linewidth=2.0, label='400 hPa IPV')
-    ax3.axhline(1.5, color='gray', linestyle=':', label='Tropopause Threshold (1.5 UVP)')
+    ax3.set_ylabel('VPI Ciclônica Máxima em 400 hPa (UVP)', color=color, fontweight='bold', fontsize=10)
+    valid_q_idx = [i for i, q in enumerate(q400_vals) if not np.isnan(q)]
+    valid_q_vals = [q400_vals[i] for i in valid_q_idx]
+    ax3.plot(valid_q_idx, valid_q_vals, color=color, marker='s', markersize=4, linestyle='--', linewidth=1.8, label='VPI em 400 hPa')
+    ax3.axhline(1.5, color='gray', linestyle=':', label='Tropopausa Dinâmica (1.5 UVP)')
     ax3.tick_params(axis='y', labelcolor=color)
     
-    plt.title('(b) Evolution of Central Vortex Intensity\nPeak on 21-22 Dec, subsequent decay as system migrates north', fontsize=10, fontweight='bold')
+    phase_transitions = [14, 24, 28, 58]
+    for pt_idx in phase_transitions:
+        ax2.axvline(pt_idx, color='gray', linestyle='--', alpha=0.6)
+        
+    ax2.text(7, -25, 'F1', fontsize=9, fontweight='bold', ha='center', color='navy')
+    ax2.text(19, -25, 'F2', fontsize=9, fontweight='bold', ha='center', color='blue')
+    ax2.text(26, -25, 'F3', fontsize=9, fontweight='bold', ha='center', color='crimson')
+    ax2.text(43, -25, 'Fase 4 (SESA)', fontsize=9, fontweight='bold', ha='center', color='crimson')
+    ax2.text(64, -25, 'F5', fontsize=9, fontweight='bold', ha='center', color='purple')
+    
+    step_ticks = np.arange(0, len(pts), 8)
+    ax2.set_xticks(step_ticks)
+    ax2.set_xticklabels([dates_str[i] for i in step_ticks], rotation=40, fontsize=8)
+    ax2.grid(True, linestyle='--', alpha=0.4)
+    ax2.set_title('(b) Evolução da Intensidade Central do Vórtice\n(Anomalia de z400 e VPI de 14 a 31 de Dezembro de 1995)', fontsize=10.5, fontweight='bold')
+    
     plt.tight_layout()
     out_file = 'Figure_8_Northward_Trajectory_VPI.png'
     plt.savefig(out_file, dpi=250, bbox_inches='tight')
@@ -595,7 +760,7 @@ def main():
     generate_figure_5(ds_pl)
     generate_figure_6(ds_pl, ds_orog)
     generate_figure_7(ds_pl)
-    generate_figure_8(ds_pl)
+    generate_figure_8(ds_pl, ds_orog)
     print("=== ALL 8 FIGURES GENERATED WITH FULL DATA INTEGRITY ===")
 
 if __name__ == '__main__':
