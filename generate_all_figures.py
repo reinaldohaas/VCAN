@@ -326,7 +326,7 @@ def generate_figure_4(ds_sfc, ds_orog):
     gl1.top_labels = False
     gl1.right_labels = False
     
-    # Painel (b): Evolução horária da pressão em Mendoza (18 a 22/12)
+    # Painel (b): Evolução horária da pressão na região a sotavento e em Mendoza (18 a 22/12)
     ax2 = fig.add_subplot(2, 2, 2)
     if ds_h is not None:
         times_h = ds_h.valid_time.values
@@ -335,20 +335,38 @@ def generate_figure_4(ds_sfc, ds_orog):
         slp_mendoza = ds_h['msl'][:, ilat, ilon].values / 100.0
         time_hours = [(t - times_h[0]) / np.timedelta64(1, 'h') for t in times_h]
         
-        ax2.plot(time_hours, slp_mendoza, color='darkblue', linewidth=2.0, marker='o', markersize=3, label='Hourly SLP at Mendoza (33°S, 68.8°W)')
-        idx_min = np.argmin(slp_mendoza)
-        ax2.plot(time_hours[idx_min], slp_mendoza[idx_min], marker='*', markersize=15, color='red', markeredgecolor='black',
-                 label=f'Min: {slp_mendoza[idx_min]:.1f} hPa (20/12 19Z)')
+        # Mínimo regional horário excluindo relevo > 2000 m
+        sub_z = ds_orog['z'].isel(valid_time=0).interp(latitude=ds_h.latitude, longitude=ds_h.longitude).values / G
+        mask_andes_h = sub_z > 2000.0
+        regional_min = []
+        for i in range(len(times_h)):
+            vals = (ds_h['msl'][i].values / 100.0).copy()
+            vals[mask_andes_h] = np.nan
+            regional_min.append(np.nanmin(vals))
+            
+        regional_min = np.array(regional_min)
+        
+        # Curva da baixa a sotavento regional (Cuyo / BNOA)
+        ax2.plot(time_hours, regional_min, color='crimson', linewidth=2.2, marker='s', markersize=3,
+                 label='Regional Lee Low Min SLP (Cuyo/BNOA: 20.9 hPa / 30h drop)')
+        idx_reg_min = np.argmin(regional_min)
+        ax2.plot(time_hours[idx_reg_min], regional_min[idx_reg_min], marker='*', markersize=16, color='red', markeredgecolor='black',
+                 label=f'Regional Min: {regional_min[idx_reg_min]:.1f} hPa (20/12 22Z, E = 1.42 Bergeron)')
+        
+        # Curva pontual de Mendoza
+        ax2.plot(time_hours, slp_mendoza, color='darkblue', linewidth=1.6, linestyle='--', marker='o', markersize=3,
+                 label='Mendoza Station Point (33°S, 68.8°W; Min 995.1 hPa)')
         
         ax2.set_xlabel('Hours since 18/12 00:00 UTC', fontsize=10, fontweight='bold')
         ax2.set_ylabel('Mean Sea Level Pressure (hPa)', fontsize=10, fontweight='bold')
-        ax2.set_title('(b) Hourly Pressure Evolution at Mendoza (18-22 Dec 1995)\nMax 24h drop: 12.8 hPa | 30h drop: 15.9 hPa', fontsize=11, fontweight='bold')
+        ax2.set_title('(b) Hourly Pressure Evolution during Lee Cyclogenesis (18-22 Dec 1995)\n' +
+                      'Regional 30h drop: 20.9 hPa | 24h drop: 17.6 hPa (Explosive Cyclogenesis / Bomb)', fontsize=11, fontweight='bold')
         ax2.grid(True, linestyle='--', alpha=0.5)
         xticks = [0, 24, 48, 72, 96]
         xlabels = ['18/12 00Z', '19/12 00Z', '20/12 00Z', '21/12 00Z', '22/12 00Z']
         ax2.set_xticks(xticks)
         ax2.set_xticklabels(xlabels)
-        ax2.legend(loc='upper right', fontsize=9)
+        ax2.legend(loc='upper right', fontsize=8.5)
     else:
         ax2.text(0.5, 0.5, 'Dados horários não encontrados', ha='center')
         
@@ -356,7 +374,8 @@ def generate_figure_4(ds_sfc, ds_orog):
     ax3 = fig.add_subplot(2, 2, 3, projection=ccrs.PlateCarree())
     ax3.add_feature(cfeature.COASTLINE, linewidth=0.9)
     ax3.add_feature(cfeature.BORDERS, linestyle=':', linewidth=0.5)
-    slp_22 = (ds_sfc['msl'].sel(time='1995-12-22T00:00').values) / 100.0
+    t_coord = 'valid_time' if 'valid_time' in ds_sfc.coords else 'time'
+    slp_22 = (ds_sfc['msl'].sel({t_coord: '1995-12-22T00:00'}).values) / 100.0
     slp_22_smooth = ndimage.gaussian_filter(slp_22, sigma=1.2)
     ax3.contourf(lon2d, lat2d, mask_andes.astype(float), levels=[0.5, 1.5], colors=['#e0e0e0'], zorder=3)
     slp_22_plot = np.where(mask_andes, np.nan, slp_22_smooth)
@@ -372,7 +391,7 @@ def generate_figure_4(ds_sfc, ds_orog):
     ax4 = fig.add_subplot(2, 2, 4, projection=ccrs.PlateCarree())
     ax4.add_feature(cfeature.COASTLINE, linewidth=0.9)
     ax4.add_feature(cfeature.BORDERS, linestyle=':', linewidth=0.5)
-    slp_25 = (ds_sfc['msl'].sel(time='1995-12-25T00:00').values) / 100.0
+    slp_25 = (ds_sfc['msl'].sel({t_coord: '1995-12-25T00:00'}).values) / 100.0
     slp_25_smooth = ndimage.gaussian_filter(slp_25, sigma=1.2)
     ax4.contourf(lon2d, lat2d, mask_andes.astype(float), levels=[0.5, 1.5], colors=['#e0e0e0'], zorder=3)
     slp_25_plot = np.where(mask_andes, np.nan, slp_25_smooth)
